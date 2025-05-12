@@ -28,6 +28,9 @@ from fastapi.staticfiles import StaticFiles
 import pydantic
 from pathlib import Path
 
+
+INI_FILE_NAME = "app.ini"
+
 # ロギング設定
 class LogManager:
     def __init__(self, log_file: str = "ftpserver.log"):
@@ -327,7 +330,7 @@ class SchemaBasedConfigManager:
     
     def get_ini_path(self) -> str:
         """INIファイルのパスを取得"""
-        return os.path.join(self.config_dir, "sdtc.ini")
+        return os.path.join(self.config_dir, INI_FILE_NAME)
     
     def read_config(self) -> configparser.ConfigParser:
         """INIファイルを読み込む"""
@@ -431,6 +434,10 @@ class SchemaBasedConfigManager:
 
     def _create_default_config(self, config: configparser.ConfigParser):
         """スキーマに基づいたデフォルト設定を作成"""
+        self.save_config(config)
+        return
+    
+        # TODO: スキーマに基づいたデフォルト設定を作成
         for section in self.schema.get_sections():
             section_name = section["name"]
             if not config.has_section(section_name):
@@ -558,7 +565,7 @@ class ConfigManager:
 
 # FTPサーバーモジュール
 class FTPServerManager:
-    def __init__(self, config_manager, schema_config_manager=None, logger=None):
+    def __init__(self, config_manager: ConfigManager, schema_config_manager: SchemaBasedConfigManager = None, logger: logging.Logger = None):
         self.config_manager = config_manager
         self.schema_config_manager = schema_config_manager
         self.logger = logger or logging.getLogger(__name__)
@@ -578,7 +585,7 @@ class FTPServerManager:
                 self.logger.error("ホームディレクトリの作成に失敗したため、FTPサーバーを起動できません")
                 return False
             
-            # sdtc.iniの初期化（スキーマ設定マネージャーが存在する場合）
+            # iniの初期化（スキーマ設定マネージャーが存在する場合）
             if self.schema_config_manager:
                 self.schema_config_manager.read_config()
             
@@ -671,341 +678,391 @@ class WebUIManager:
     
     def _create_default_templates(self):
         # インデックスページのテンプレート（スキーマベース対応版）
+        # _create_default_templates メソッド内の index_html を以下のように修正
         index_html = """
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>FTPサーバー管理</title>
-            <style>
-                body {
-                    font-family: Arial, sans-serif;
-                    max-width: 800px;
-                    margin: 0 auto;
-                    padding: 20px;
-                    color: {{ theme_text_color }};
-                    background-color: {{ theme_bg_color }};
-                }
-                .dark {
-                    background-color: #333;
-                    color: #fff;
-                }
-                .light {
-                    background-color: #fff;
-                    color: #333;
-                }
-                h1 {
-                    color: {{ theme_accent_color }};
-                }
-                .container {
-                    display: flex;
-                    flex-direction: column;
-                    gap: 20px;
-                }
-                .card {
-                    border: 1px solid #ccc;
-                    border-radius: 5px;
-                    padding: 20px;
-                    background-color: {{ theme_card_bg }};
-                }
-                .form-group {
-                    margin-bottom: 15px;
-                }
-                label {
-                    display: block;
-                    margin-bottom: 5px;
-                    font-weight: bold;
-                }
-                input, select {
-                    width: 100%;
-                    padding: 8px;
-                    border: 1px solid #ccc;
-                    border-radius: 4px;
-                    background-color: {{ theme_input_bg }};
-                    color: {{ theme_input_color }};
-                }
-                .error-field {
-                    border: 1px solid {{ theme_error_color }};
-                }
-                .error-message {
-                    color: {{ theme_error_color }};
-                    font-size: 0.85em;
-                    margin-top: 5px;
-                }
-                button {
-                    background-color: #4CAF50;
-                    color: white;
-                    padding: 10px 15px;
-                    border: none;
-                    border-radius: 4px;
-                    cursor: pointer;
-                    font-size: 16px;
-                }
-                button:hover {
-                    background-color: #45a049;
-                }
-                .status {
-                    margin-top: 20px;
-                    padding: 10px;
-                    border-radius: 4px;
-                }
-                .status.running {
-                    background-color: #d4edda;
-                    color: #155724;
-                }
-                .status.stopped {
-                    background-color: #f8d7da;
-                    color: #721c24;
-                }
-                .tabs {
-                    display: flex;
-                    margin-bottom: 20px;
-                }
-                .tab {
-                    padding: 10px 20px;
-                    cursor: pointer;
-                    border: 1px solid #ccc;
-                    border-bottom: none;
-                    border-radius: 5px 5px 0 0;
-                    background-color: {{ theme_tab_bg }};
-                    color: {{ theme_tab_color }};
-                }
-                .tab.active {
-                    background-color: {{ theme_active_tab_bg }};
-                    color: {{ theme_active_tab_color }};
-                    font-weight: bold;
-                }
-                .tab-content {
-                    display: none;
-                }
-                .tab-content.active {
-                    display: block;
-                }
-                .section-header {
-                    margin-top: 20px;
-                    margin-bottom: 10px;
-                    padding-bottom: 5px;
-                    border-bottom: 1px solid #ccc;
-                }
-                .section-comment {
-                    color: {{ theme_tab_color }};
-                    font-style: italic;
-                    margin-bottom: 15px;
-                }
-                .field-comment {
-                    color: {{ theme_tab_color }};
-                    font-size: 0.9em;
-                    margin-top: 3px;
-                }
-                .schema-section {
-                    margin-bottom: 30px;
-                }
-                .undefined-option {
-                    color: #888;
-                    font-style: italic;
-                }
-            </style>
-        </head>
-        <body class="{{ theme }}">
-            <h1>FTPサーバー管理</h1>
-            
-            <div class="tabs">
-                <div class="tab active" data-tab="appconfig">アプリケーション設定</div>
-                <div class="tab" data-tab="ftpconfig">FTPサーバー設定</div>
-            </div>
-            
-            <div class="container">
-                {% if config_schema %}
-                <div class="tab-content active" id="appconfig">
-                    <div class="card">
-                        <h2>アプリケーション設定 (sdtc.ini)</h2>
+<!DOCTYPE html>
+<html>
+<head>
+    <title>FTPサーバー管理</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            color: {{ theme_text_color }};
+            background-color: {{ theme_bg_color }};
+        }
+        .dark {
+            background-color: #333;
+            color: #fff;
+        }
+        .light {
+            background-color: #fff;
+            color: #333;
+        }
+        h1 {
+            color: {{ theme_accent_color }};
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .card {
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            padding: 20px;
+            background-color: {{ theme_card_bg }};
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input, select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            background-color: {{ theme_input_bg }};
+            color: {{ theme_input_color }};
+        }
+        .error-field {
+            border: 1px solid {{ theme_error_color }};
+        }
+        .error-message {
+            color: {{ theme_error_color }};
+            font-size: 0.85em;
+            margin-top: 5px;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .status {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .status.running {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .status.stopped {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .tabs {
+            display: flex;
+            margin-bottom: 20px;
+        }
+        .tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            border: 1px solid #ccc;
+            border-bottom: none;
+            border-radius: 5px 5px 0 0;
+            background-color: {{ theme_tab_bg }};
+            color: {{ theme_tab_color }};
+        }
+        .tab.active {
+            background-color: {{ theme_active_tab_bg }};
+            color: {{ theme_active_tab_color }};
+            font-weight: bold;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        .section-header {
+            margin-top: 20px;
+            margin-bottom: 10px;
+            padding-bottom: 5px;
+            border-bottom: 1px solid #ccc;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .section-header:hover {
+            background-color: rgba(0, 0, 0, 0.05);
+        }
+        .section-comment {
+            color: {{ theme_tab_color }};
+            font-style: italic;
+            margin-bottom: 15px;
+        }
+        .field-comment {
+            color: {{ theme_tab_color }};
+            font-size: 0.9em;
+            margin-top: 3px;
+        }
+        .schema-section {
+            margin-bottom: 30px;
+        }
+        .undefined-option {
+            color: #888;
+            font-style: italic;
+        }
+        .collapse-icon::after {
+            content: "▼";
+            font-size: 0.8em;
+            margin-left: 10px;
+            transition: transform 0.3s;
+        }
+        .collapsed .collapse-icon::after {
+            content: "▶";
+        }
+        .section-content {
+            transition: max-height 0.3s ease-out;
+            overflow: hidden;
+        }
+        .collapsed .section-content {
+            display: none;
+        }
+    </style>
+</head>
+<body class="{{ theme }}">
+    <h1>FTPサーバー管理</h1>
+    
+    <div class="tabs">
+        <div class="tab active" data-tab="appconfig">アプリケーション設定</div>
+        <div class="tab" data-tab="ftpconfig">FTPサーバー設定</div>
+    </div>
+    
+    <div class="container">
+        {% if config_schema %}
+        <div class="tab-content active" id="appconfig">
+            <div class="card">
+                <h2>アプリケーション設定</h2>
+                
+                <form action="/update_app_config" method="post">
+                    {% for section in schema_sections %}
+                    {% set section_has_values = namespace(value=false) %}
+                    {% for key in section["keys"] %}
+                        {% if section.name in config and key.name in config[section.name] %}
+                            {% set section_has_values.value = true %}
+                        {% endif %}
+                    {% endfor %}
+                    
+                    <div class="schema-section {% if not section_has_values.value %}collapsed{% endif %}" id="section-{{ section.name }}">
+                        <h3 class="section-header" onclick="toggleSection('{{ section.name }}')">
+                            {{ section.name }}
+                            <span class="collapse-icon"></span>
+                        </h3>
+                        {% if section.comment %}
+                        <div class="section-comment">{{ section.comment }}</div>
+                        {% endif %}
                         
-                        <form action="/update_app_config" method="post">
-                            {% for section in schema_sections %}
-                            <div class="schema-section">
-                                <h3 class="section-header">{{ section.name }}</h3>
-                                {% if section.comment %}
-                                <div class="section-comment">{{ section.comment }}</div>
+                        <div class="section-content">
+                            {% for key in section["keys"] %}
+                            <div class="form-group">
+                                <label for="{{ section.name }}.{{ key.name }}">{{ key.name }}:</label>
+                                
+                                {% set current_value = config.get(section.name, key.name, fallback="__UNDEFINED__") %}
+                                {% set has_error = validation_results.get(section.name, {}).get(key.name, {"valid": True}).valid == False %}
+                                {% set error_message = validation_results.get(section.name, {}).get(key.name, {"error": ""}).error %}
+                                
+                                {% if key.type == "boolean" %}
+                                    <select id="{{ section.name }}.{{ key.name }}" 
+                                            name="{{ section.name }}.{{ key.name }}"
+                                            class="{% if has_error %}error-field{% endif %}">
+                                        <option value="__UNDEFINED__" class="undefined-option" {% if current_value == "__UNDEFINED__" %}selected{% endif %}>-- 未定義 --</option>
+                                        <option value="yes" {% if current_value == "yes" %}selected{% endif %}>有効</option>
+                                        <option value="no" {% if current_value == "no" %}selected{% endif %}>無効</option>
+                                    </select>
+                                
+                                {% elif key.type == "enum" %}
+                                    <select id="{{ section.name }}.{{ key.name }}" 
+                                            name="{{ section.name }}.{{ key.name }}"
+                                            class="{% if has_error %}error-field{% endif %}">
+                                        <option value="__UNDEFINED__" class="undefined-option" {% if current_value == "__UNDEFINED__" %}selected{% endif %}>-- 未定義 --</option>
+                                        {% for option in key.options %}
+                                        <option value="{{ option }}" {% if current_value == option %}selected{% endif %}>{{ option }}</option>
+                                        {% endfor %}
+                                    </select>
+                                
+                                {% elif key.type == "integer" %}
+                                    <input type="number" 
+                                        id="{{ section.name }}.{{ key.name }}" 
+                                        name="{{ section.name }}.{{ key.name }}" 
+                                        value="{% if current_value != '__UNDEFINED__' %}{{ current_value }}{% endif %}"
+                                        placeholder="-- 未定義 --"
+                                        class="{% if has_error %}error-field{% endif %}"
+                                        {% if 'min' in key %}min="{{ key.min }}"{% endif %}
+                                        {% if 'max' in key %}max="{{ key.max }}"{% endif %}>
+                                
+                                {% else %}
+                                    <input type="text" 
+                                        id="{{ section.name }}.{{ key.name }}" 
+                                        name="{{ section.name }}.{{ key.name }}" 
+                                        value="{% if current_value != '__UNDEFINED__' %}{{ current_value }}{% endif %}"
+                                        placeholder="-- 未定義 --"
+                                        class="{% if has_error %}error-field{% endif %}">
                                 {% endif %}
                                 
-                                {% for key in section["keys"] %}
-                                <div class="form-group">
-                                    <label for="{{ section.name }}.{{ key.name }}">{{ key.name }}:</label>
-                                    
-                                    {% set current_value = config.get(section.name, key.name, fallback="__UNDEFINED__") %}
-                                    {% set has_error = validation_results.get(section.name, {}).get(key.name, {"valid": True}).valid == False %}
-                                    {% set error_message = validation_results.get(section.name, {}).get(key.name, {"error": ""}).error %}
-                                    
-                                    {% if key.type == "boolean" %}
-                                        <select id="{{ section.name }}.{{ key.name }}" 
-                                                name="{{ section.name }}.{{ key.name }}"
-                                                class="{% if has_error %}error-field{% endif %}">
-                                            <option value="__UNDEFINED__" class="undefined-option" {% if current_value == "__UNDEFINED__" %}selected{% endif %}>-- 未定義 --</option>
-                                            <option value="yes" {% if current_value == "yes" %}selected{% endif %}>有効</option>
-                                            <option value="no" {% if current_value == "no" %}selected{% endif %}>無効</option>
-                                        </select>
-                                    
-                                    {% elif key.type == "enum" %}
-                                        <select id="{{ section.name }}.{{ key.name }}" 
-                                                name="{{ section.name }}.{{ key.name }}"
-                                                class="{% if has_error %}error-field{% endif %}">
-                                            <option value="__UNDEFINED__" class="undefined-option" {% if current_value == "__UNDEFINED__" %}selected{% endif %}>-- 未定義 --</option>
-                                            {% for option in key.options %}
-                                            <option value="{{ option }}" {% if current_value == option %}selected{% endif %}>{{ option }}</option>
-                                            {% endfor %}
-                                        </select>
-                                    
-                                    {% elif key.type == "integer" %}
-                                        <input type="number" 
-                                            id="{{ section.name }}.{{ key.name }}" 
-                                            name="{{ section.name }}.{{ key.name }}" 
-                                            value="{% if current_value != '__UNDEFINED__' %}{{ current_value }}{% endif %}"
-                                            placeholder="-- 未定義 --"
-                                            class="{% if has_error %}error-field{% endif %}"
-                                            {% if 'min' in key %}min="{{ key.min }}"{% endif %}
-                                            {% if 'max' in key %}max="{{ key.max }}"{% endif %}>
-                                    
-                                    {% else %}
-                                        <input type="text" 
-                                            id="{{ section.name }}.{{ key.name }}" 
-                                            name="{{ section.name }}.{{ key.name }}" 
-                                            value="{% if current_value != '__UNDEFINED__' %}{{ current_value }}{% endif %}"
-                                            placeholder="-- 未定義 --"
-                                            class="{% if has_error %}error-field{% endif %}">
-                                    {% endif %}
-                                    
-                                    {% if has_error %}
-                                    <div class="error-message">{{ error_message }}</div>
-                                    {% endif %}
-                                    
-                                    {% if key.comment %}
-                                    <div class="field-comment">{{ key.comment }} ( default: {{ key.default }} )</div>
-                                    {% endif %}
-                                </div>
-                                {% endfor %}
+                                {% if has_error %}
+                                <div class="error-message">{{ error_message }}</div>
+                                {% endif %}
+                                
+                                {% if key.comment %}
+                                <div class="field-comment">{{ key.comment }} ( default: {{ key.default }} )</div>
+                                {% endif %}
                             </div>
                             {% endfor %}
-                            
-                            <button type="submit">設定を保存</button>
-                        </form>
+                        </div>
                     </div>
-                </div>
-                {% else %}
-                <div class="tab-content active" id="appconfig">
-                    <div class="card">
-                        <h2>アプリケーション設定</h2>
-                        <p>スキーマ設定が利用できません。</p>
-                    </div>
-                </div>
-                {% endif %}
-                
-                <div class="tab-content" id="ftpconfig">
-                    <div class="card">
-                        <h2>FTPサーバー設定</h2>
-                        <form action="/update_ftp_config" method="post">
-                            <div class="form-group">
-                                <label for="port">ポート番号:</label>
-                                <input type="number" id="port" name="port" value="{{ ftp_config.port }}" required min="1" max="65535">
-                            </div>
-                            
-                            <div class="form-group">
-                                <label for="home_dir">ホームディレクトリ:</label>
-                                <input type="text" id="home_dir" name="home_dir" value="{{ ftp_config.home_dir }}" required>
-                            </div>
-                            
-                            <div class="form-group">
-                                <label for="allow_anonymous">匿名ログイン:</label>
-                                <select id="allow_anonymous" name="allow_anonymous">
-                                    <option value="true" {% if ftp_config.allow_anonymous %}selected{% endif %}>有効</option>
-                                    <option value="false" {% if not ftp_config.allow_anonymous %}selected{% endif %}>無効</option>
-                                </select>
-                            </div>
-                            
-                            <div class="form-group">
-                                <label for="username">ユーザー名:</label>
-                                <input type="text" id="username" name="username" value="{{ ftp_config.username }}" required>
-                            </div>
-                            
-                            <div class="form-group">
-                                <label for="password">パスワード:</label>
-                                <input type="password" id="password" name="password" value="{{ ftp_config.password }}" required>
-                            </div>
-                            
-                            <div class="form-group">
-                                <label for="theme">テーマ:</label>
-                                    <select id="theme" name="theme">
-                                        <option value="light" {% if app_config.theme == 'light' %}selected{% endif %}>ライト</option>
-                                        <option value="dark" {% if app_config.theme == 'dark' %}selected{% endif %}>ダーク</option>
-                                    </select>
-                            </div>
-                            
-                            <button type="submit">設定を保存</button>
-                        </form>
+                    {% endfor %}
+                    
+                    <button type="submit">設定を保存</button>
+                </form>
+            </div>
+        </div>
+        {% else %}
+        <div class="tab-content active" id="appconfig">
+            <div class="card">
+                <h2>アプリケーション設定</h2>
+                <p>スキーマ設定が利用できません。</p>
+            </div>
+        </div>
+        {% endif %}
+        
+        <div class="tab-content" id="ftpconfig">
+            <div class="card">
+                <h2>FTPサーバー設定</h2>
+                <form action="/update_ftp_config" method="post">
+                    <div class="form-group">
+                        <label for="port">ポート番号:</label>
+                        <input type="number" id="port" name="port" value="{{ ftp_config.port }}" required min="1" max="65535">
                     </div>
                     
-                    <div class="status {{ server_status }}">
-                        <p>サーバーステータス: {{ server_status_text }}</p>
-                        <form action="/restart_server" method="post" style="display: inline;">
-                            <button type="submit">サーバーを再起動</button>
-                        </form>
+                    <div class="form-group">
+                        <label for="home_dir">ホームディレクトリ:</label>
+                        <input type="text" id="home_dir" name="home_dir" value="{{ ftp_config.home_dir }}" required>
                     </div>
-                </div>
+                    
+                    <div class="form-group">
+                        <label for="allow_anonymous">匿名ログイン:</label>
+                        <select id="allow_anonymous" name="allow_anonymous">
+                            <option value="true" {% if ftp_config.allow_anonymous %}selected{% endif %}>有効</option>
+                            <option value="false" {% if not ftp_config.allow_anonymous %}selected{% endif %}>無効</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="username">ユーザー名:</label>
+                        <input type="text" id="username" name="username" value="{{ ftp_config.username }}" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="password">パスワード:</label>
+                        <input type="password" id="password" name="password" value="{{ ftp_config.password }}" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="theme">テーマ:</label>
+                            <select id="theme" name="theme">
+                                <option value="light" {% if app_config.theme == 'light' %}selected{% endif %}>ライト</option>
+                                <option value="dark" {% if app_config.theme == 'dark' %}selected{% endif %}>ダーク</option>
+                            </select>
+                    </div>
+                    
+                    <button type="submit">設定を保存</button>
+                </form>
             </div>
             
-            <script>
-                document.addEventListener('DOMContentLoaded', function() {
-                    // 空入力フィールドの処理
-                    const textInputs = document.querySelectorAll('input[type="text"], input[type="number"]');
-                    textInputs.forEach(input => {
-                        input.addEventListener('change', function() {
-                            if (this.value === '') {
-                                this.value = '__UNDEFINED__';
-                            }
-                        });
-                        
-                        input.addEventListener('focus', function() {
-                            if (this.value === '__UNDEFINED__') {
-                                this.value = '';
-                            }
-                        });
-                        
-                        input.addEventListener('blur', function() {
-                            if (this.value === '') {
-                                this.setAttribute('placeholder', '-- 未定義 --');
-                            }
-                        });
-                    });
+            <div class="status {{ server_status }}">
+                <p>サーバーステータス: {{ server_status_text }}</p>
+                <form action="/restart_server" method="post" style="display: inline;">
+                    <button type="submit">サーバーを再起動</button>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // 空入力フィールドの処理
+            const textInputs = document.querySelectorAll('input[type="text"], input[type="number"]');
+            textInputs.forEach(input => {
+                input.addEventListener('change', function() {
+                    if (this.value === '') {
+                        this.value = '__UNDEFINED__';
+                    }
+                });
+                
+                input.addEventListener('focus', function() {
+                    if (this.value === '__UNDEFINED__') {
+                        this.value = '';
+                    }
+                });
+                
+                input.addEventListener('blur', function() {
+                    if (this.value === '') {
+                        this.setAttribute('placeholder', '-- 未定義 --');
+                    }
+                });
+            });
+            
+            // タブ切り替え
+            const tabs = document.querySelectorAll('.tab');
+            const tabContents = document.querySelectorAll('.tab-content');
+            
+            tabs.forEach(tab => {
+                tab.addEventListener('click', function() {
+                    const tabId = this.getAttribute('data-tab');
                     
-                    // タブ切り替え
-                    const tabs = document.querySelectorAll('.tab');
-                    const tabContents = document.querySelectorAll('.tab-content');
+                    // タブの切り替え
+                    tabs.forEach(t => t.classList.remove('active'));
+                    this.classList.add('active');
                     
-                    tabs.forEach(tab => {
-                        tab.addEventListener('click', function() {
-                            const tabId = this.getAttribute('data-tab');
-                            
-                            // タブの切り替え
-                            tabs.forEach(t => t.classList.remove('active'));
-                            this.classList.add('active');
-                            
-                            // コンテンツの切り替え
-                            tabContents.forEach(content => {
-                                content.classList.remove('active');
-                                if (content.id === tabId) {
-                                    content.classList.add('active');
-                                }
-                            });
-                        });
+                    // コンテンツの切り替え
+                    tabContents.forEach(content => {
+                        content.classList.remove('active');
+                        if (content.id === tabId) {
+                            content.classList.add('active');
+                        }
                     });
                 });
-            </script>
-        </body>
-        </html>
-        """
+            });
+
+            // 初期状態での折りたたみ状態を確認
+            console.log('セクション折りたたみ状態を初期化します');
+            document.querySelectorAll('.schema-section').forEach(section => {
+                console.log(section.id + ' の状態: ' + (section.classList.contains('collapsed') ? '折りたたみ' : '展開'));
+            });
+        });
+        
+        // セクションの折りたたみ切り替え関数
+        function toggleSection(sectionName) {
+            console.log('セクション切り替え: ' + sectionName);
+            const section = document.getElementById('section-' + sectionName);
+            section.classList.toggle('collapsed');
+            console.log('新しい状態: ' + (section.classList.contains('collapsed') ? '折りたたみ' : '展開'));
+        }
+    </script>
+</body>
+</html>
+"""
         
         index_path = self.templates_dir / "index.html"
         if not index_path.exists():
             with open(index_path, "w", encoding="utf-8") as f:
-                f.write(index_html)
+                f.write(index_html.strip())
     
     def setup_routes(self):
         @self.app.get("/", response_class=HTMLResponse)
