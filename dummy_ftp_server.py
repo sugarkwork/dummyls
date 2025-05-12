@@ -29,8 +29,6 @@ import pydantic
 from pathlib import Path
 
 
-INI_FILE_NAME = "app.ini"
-
 # ロギング設定
 class LogManager:
     def __init__(self, log_file: str = "ftpserver.log"):
@@ -84,6 +82,7 @@ class ConfigSchema:
         return {
             "schema_version": "1.0",
             "description": "アプリケーション設定スキーマ",
+            "filename": "app.ini",
             "sections": [
                 {
                     "name": "SETTINGS",
@@ -260,6 +259,10 @@ class ConfigSchema:
         """全セクション定義を取得"""
         return self.schema.get("sections", [])
     
+    def get_filename(self) -> str:
+        """全セクション定義を取得"""
+        return self.schema.get("filename", "app.ini")
+    
     def get_section(self, section_name: str) -> Optional[Dict[str, Any]]:
         """特定のセクション定義を取得"""
         for section in self.get_sections():
@@ -330,7 +333,7 @@ class SchemaBasedConfigManager:
     
     def get_ini_path(self) -> str:
         """INIファイルのパスを取得"""
-        return os.path.join(self.config_dir, INI_FILE_NAME)
+        return os.path.join(self.config_dir, self.schema.get_filename())
     
     def read_config(self) -> configparser.ConfigParser:
         """INIファイルを読み込む"""
@@ -602,7 +605,7 @@ class FTPServerManager:
             
             # 匿名ユーザーの設定
             if ftp_config["allow_anonymous"]:
-                authorizer.add_anonymous(ftp_config["home_dir"], perm="elr")  # 読み取り専用
+                authorizer.add_anonymous(ftp_config["home_dir"], perm="elradfmwMT")  # 読み取り専用
             
             # FTPハンドラー設定
             handler = FTPHandler
@@ -610,7 +613,7 @@ class FTPServerManager:
             handler.banner = "FTP Server Ready"
             
             # サーバーアドレスとポート設定
-            address = ('', ftp_config["port"])
+            address = ('0.0.0.0', ftp_config["port"])
             self.server = FTPServer(address, handler)
             
             # サーバー設定
